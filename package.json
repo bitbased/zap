@@ -1,0 +1,32 @@
+{
+  "name": "zap",
+  "version": "1.0.0",
+  "description": "Zap Reactive Deployment",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "host": "ts-node src/zap-host.ts"
+  },
+  "bin": {
+    "zap": "src/zap-cli.js"
+  },
+  "zap": {
+    "ignore": [
+      "zaps",
+      "dist",
+      "node_modules",
+      ".vscode"
+    ]
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0"
+  }
+}

@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Zap WebUI</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .hidden { display: none; }
+    button { margin: 0.5rem 0; }
+    input, button { font-size: 1rem; padding: 0.5rem; }
+
+    /* main content area occupies remaining viewport and uses flex layout */
+    #mainDiv:not(.hidden) {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* header bar */
+    h1 {
+      background-color: #007acc;
+      color: #fff;
+      padding: 0.75rem 1rem;
+      margin: 0;
+      border-radius: 4px 4px 0 0;
+      display: flex;
+      align-items: center;
+    }
+    #services {
+      margin-top: 1rem;
+      overflow-x: auto;
+    }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; }
+
+    /* flash notification */
+    #flashMsg {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      min-width: 200px;
+      padding: 0.75rem 1rem;
+      border-radius: 4px;
+      background: #333;
+      color: #fff;
+      z-index: 1000;
+    }
+
+    /* header icon */
+    .header-icon {
+      vertical-align: middle;
+      margin-right: 0.75rem;
+      height: 32px;
+      width: auto;
+    }
+
+    /* tabs */
+    .tab-input {
+      display: none;
+    }
+    .tabs {
+      display: flex;
+      align-items: center;
+      background-color: #007acc;
+      padding: 0.5rem 1rem;
+      margin: 0 0 1rem 0;
+      border-radius: 0 0 4px 4px;
+    }
+    .tabs label {
+      padding: 0.5rem 0;
+      margin-right: 1.5rem;
+      cursor: pointer;
+      color: rgba(255,255,255,0.75);
+      position: relative;
+    }
+    .tabs label:hover {
+      color: #fff;
+    }
+    .tab-content {
+      display: none;
+    }
+    #tab-services:checked ~ .tabs label[for="tab-services"] {
+      font-weight: bold;
+      color: #fff;
+    }
+    #tab-services:checked ~ .tabs label[for="tab-services"]::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #fff;
+    }
+    #tab-services:checked ~ #servicesSection {
+      display: flex;
+    }
+
+    /* full layout: hide services header (title + create button) when details pane is open */
+    #servicesSection.layout-full > .services-header {
+      display: none;
+    }
+
+    /* services header (title + create button) */
+    .services-header {
+      display: flex;
+      align-items: center;
+      margin: 0.5rem 0;
+    }
+    .services-header h2 {
+      margin: 0;
+    }
+    .services-header button {
+      margin-left: auto;
+    }
+
+    #services table thead th {
+      background: #f7f7f7;
+    }
+    #services table tbody tr:nth-child(even) {
+      background: #f9f9f9;
+    }
+    #services table tbody tr:hover {
+      background: #f1f1f1;
+    }
+    #services table td:nth-child(2) {
+      max-width: 30ch;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #services button {
+      margin-right: 0.25rem;
+    }
+
+    /* layout selection tabs */
+    .layout-tabs {
+      display: flex;
+      margin-left: auto;
+    }
+    .layout-btn {
+      background: transparent;
+      border: none;
+      color: rgba(255,255,255,0.75);
+      cursor: pointer;
+      font-size: 1rem;
+      padding: 0.5rem 0;
+      margin-right: 1.5rem;
+      position: relative;
+    }
+    .layout-btn:hover {
+      color: #fff;
+    }
+    .layout-btn.active {
+      font-weight: bold;
+      color: #fff;
+    }
+    .layout-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: #fff;
+    }
+
+    /* services/details container layouts */
+    /* Ensure services section fills available space and does not overflow */
+    #servicesSection {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    #servicesContainer {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    #servicesContainer.layout-horizontal {
+      flex-direction: row;
+    }
+    #servicesContainer.layout-full {
+      flex-direction: column;
+    }
+    #servicesContainer > #services {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #servicesContainer > #detailsDiv:not(.hidden) {
+      flex: 0 0 50%;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    #servicesContainer.layout-horizontal > #detailsDiv:not(.hidden) {
+      flex: 1;
+      height: auto;
+      width: 50%;
+    }
+    #servicesContainer.layout-full > #detailsDiv:not(.hidden) {
+      flex: 1;
+      width: 100%;
+    }
+    #servicesContainer.layout-horizontal > #services,
+    #servicesContainer.layout-horizontal > #detailsDiv {
+      width: 50%;
+    }
+    /* in full mode, hide services list only when details pane is open */
+    #servicesContainer.layout-full.detail-open > #services {
+      display: none;
+    }
+
+    /* services table independent scroll & sticky header */
+    #servicesContainer > #services > table {
+      flex: 1;
+      overflow-y: auto;
+      display: block;
+    }
+    #servicesContainer > #services > table thead {
+      display: table;
+      width: 100%;
+      table-layout: fixed;
+    }
+    #servicesContainer > #services > table tbody {
+      display: block;
+      width: 100%;
+    }
+    #servicesContainer > #services thead th {
+      position: sticky;
+      top: 0;
+      background: #f7f7f7;
+      z-index: 1;
+    }
+
+    #detailsDiv > pre#serviceLogs {
+      flex: 1;
+      overflow-y: auto;
+      background: #f4f4f4;
+      padding: 1rem;
+    }
+    #detailsDiv > h2,
+    #detailsDiv > form,
+    #detailsDiv > h3,
+    #detailsDiv > .details-actions {
+      flex-shrink: 0;
+    }
+
+    #detailsDiv > .details-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+    }
+
+  </style>
+  <link rel="icon" href="zap-icon.png" type="image/png">
+</head>
+<body>
+  <div id="flashMsg" class="hidden"></div>
+  <h1><img src="zap-icon.png" alt="Zap Logo" class="header-icon">Zap Host Manager</h1>
+
+  <div id="loginDiv">
+    <h2>Login</h2>
+    <form id="loginForm">
+      <label>
+        Token:
+        <input type="text" id="token" placeholder="API token" />
+      </label>
+      <div style="margin:0.5rem 0; text-align:center;">or</div>
+      <label>
+        Username:
+        <input type="text" id="username" />
+      </label>
+      <label>
+        Password:
+        <input type="password" id="password" />
+      </label>
+      <button type="submit">Login</button>
+    </form>
+    <div id="loginError" style="color: red;"></div>
+  </div>
+
+  <div id="mainDiv" class="hidden">
+    <input type="radio" name="tab" id="tab-services" class="tab-input" checked>
+    <nav class="tabs">
+      <label for="tab-services">Services</label>
+      <div class="layout-tabs">
+        <button class="layout-btn active" data-layout="vertical" title="Vertical layout">Vertical</button>
+        <button class="layout-btn" data-layout="horizontal" title="Horizontal layout">Horizontal</button>
+        <button class="layout-btn" data-layout="full" title="Full layout">Full</button>
+      </div>
+    </nav>
+    <section id="servicesSection" class="tab-content">
+      <div class="services-header">
+        <h2>Services</h2>
+        <button type="button" id="createService">Create Service</button>
+      </div>
+      <div id="servicesContainer" class="layout-vertical">
+        <div id="services"></div>
+        <div id="detailsDiv" class="hidden">
+          <h2>Details for <span id="detailsServiceId"></span></h2>
+          <form id="detailsForm">
+            <label>
+              Path:
+              <input type="text" id="detailsPath" style="width: 100%;" />
+            </label>
+            <label>
+              Command:
+              <input type="text" id="detailsCmd" style="width: 100%;" required />
+            </label>
+            <label><input type="checkbox" id="detailsAutoRestart" /> Auto-restart</label>
+            <label>
+              Delay (sec):
+              <input type="number" id="detailsRestartDelay" value="0" min="0" style="width: 4rem;" />
+            </label>
+          </form>
+          <div class="details-actions">
+            <button type="submit" form="detailsForm">Save</button>
+            <button type="button" id="closeDetails">Close</button>
+            <button type="button" id="clearLogs">Clear Logs</button>
+            <button type="button" id="tailLogs">Tail Logs</button>
+          </div>
+          <pre id="serviceLogs"></pre>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    let lastServicesContent = '';
+    function showFlash(msg, duration = 3000) {
+      const flash = document.getElementById('flashMsg');
+      flash.textContent = msg;
+      flash.classList.remove('hidden');
+      setTimeout(() => flash.classList.add('hidden'), duration);
+    }
+
+    async function login(username, password) {
+      const res = await fetch('/api/v0/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+        credentials: 'same-origin'
+      });
+      if (!res.ok) throw new Error('Login failed');
+      return res.json();
+    }
+
+    async function tokenLogin(token) {
+      const res = await fetch('/api/v0/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+        credentials: 'same-origin'
+      });
+      if (!res.ok) throw new Error('Token login failed');
+      return res.json();
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      document.getElementById('loginError').textContent = '';
+      const tokenField = document.getElementById('token').value;
+      try {
+        if (tokenField) {
+          await tokenLogin(tokenField);
+        } else {
+          const username = document.getElementById('username').value;
+          const password = document.getElementById('password').value;
+          await login(username, password);
+        }
+        document.getElementById('loginDiv').classList.add('hidden');
+        document.getElementById('mainDiv').classList.remove('hidden');
+        fetchServices();
+        setInterval(fetchServices, 1000);
+      } catch (err) {
+        document.getElementById('loginError').textContent = err.message;
+      }
+    });
+
+
+    async function startService(cmd, autoRestart, restartDelay, path) {
+      const res = await fetch('/api/v0/services', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cmd, autoRestart, restartDelay, path }),
+        credentials: 'same-origin'
+      });
+      if (!res.ok) throw new Error('Failed to start service');
+      return res.json();
+    }
+
+    document.getElementById('createService').addEventListener('click', async () => {
+      try {
+        const { id } = await startService('', false, 0);
+        await fetch(`/api/v0/services/${id}/stop`, { method: 'POST', credentials: 'same-origin' });
+        await fetchServices();
+        document.querySelector(`#services .logsBtn[data-id="${id}"]`).click();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    async function fetchServices() {
+      const res = await fetch('/api/v0/services', { credentials: 'same-origin' });
+      let newContent;
+      if (!res.ok) {
+        newContent = 'Failed to load services';
+      } else {
+        const services = await res.json();
+        if (!Array.isArray(services)) {
+          newContent = 'Failed to load services';
+        } else if (services.length === 0) {
+          newContent = 'No services';
+        } else {
+          newContent = '<table><thead><tr><th>ID</th><th>Path</th><th>Cmd</th><th>Auto</th><th>Delay(s)</th><th>Status</th><th>PID</th><th>Exit</th><th>Action</th></tr></thead><tbody>';
+          services.forEach(s => {
+            newContent += '<tr><td>' + s.id + '</td>' +
+                          '<td>' + (s.path || '') + '</td>' +
+                          '<td>' + s.cmd + '</td>' +
+                          '<td>' + (s.autoRestart ? 'yes' : 'no') + '</td>' +
+                          '<td>' + s.restartDelay + '</td>' +
+                          '<td>' + s.status + '</td>' +
+                          '<td>' + s.pid + '</td>' +
+                          '<td>' + (s.exitCode != null ? s.exitCode : '') + '</td>' +
+                          '<td>' +
+                            '<button class="startBtn" data-id="' + s.id + '"' + (s.status === 'running' ? ' disabled' : '') + '>Start</button>' +
+                            '<button class="stopBtn" data-id="' + s.id + '"' + (s.status === 'stopped' ? ' disabled' : '') + '>Stop</button>' +
+                            '<button class="logsBtn" data-id="' + s.id + '">Show</button>' +
+                            '<button class="removeBtn" data-id="' + s.id + '">Remove</button>' +
+                          '</td>' +
+                        '</tr>';
+          });
+          newContent += '</tbody></table>';
+        }
+      }
+      const container = document.getElementById('services');
+      if (newContent !== lastServicesContent) {
+        container.innerHTML = newContent;
+        lastServicesContent = newContent;
+        container.querySelectorAll('.stopBtn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            try {
+              await fetch(`/api/v0/services/${id}/stop`, { method: 'POST', credentials: 'same-origin' });
+              fetchServices();
+            } catch {
+              alert('Failed to stop service ' + id);
+            }
+          });
+        });
+        container.querySelectorAll('.startBtn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            try {
+              await fetch(`/api/v0/services/${id}/start`, { method: 'POST', credentials: 'same-origin' });
+              fetchServices();
+            } catch {
+              alert('Failed to start service ' + id);
+            }
+          });
+        });
+        container.querySelectorAll('.removeBtn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            if (!confirm('Remove service ' + id + '?')) return;
+            try {
+              await fetch(`/api/v0/services/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+              fetchServices();
+            } catch {
+              alert('Failed to remove service ' + id);
+            }
+          });
+        });
+        container.querySelectorAll('.logsBtn').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.getAttribute('data-id');
+            try {
+              const svcRes = await fetch(`/api/v0/services/${id}`, { credentials: 'same-origin' });
+              if (!svcRes.ok) throw new Error('Failed to fetch service details');
+              const svc = await svcRes.json();
+              document.getElementById('detailsServiceId').textContent = id;
+              document.getElementById('detailsPath').value = svc.path || '';
+              document.getElementById('detailsCmd').value = svc.cmd;
+              document.getElementById('detailsAutoRestart').checked = svc.autoRestart;
+              document.getElementById('detailsRestartDelay').value = svc.restartDelay;
+
+              const logRes = await fetch(`/api/v0/services/${id}/logs?limit=100`, { credentials: 'same-origin' });
+              if (!logRes.ok) throw new Error('Failed to fetch logs');
+              const logs = await logRes.json();
+              const pre = document.getElementById('serviceLogs');
+              pre.textContent = logs.map(l => new Date(l.timestamp).toISOString() + ' ' + l.line).join('\n');
+              lastLogTime = logs.length > 0 ? logs[logs.length - 1].timestamp : 0;
+
+              document.getElementById('detailsDiv').classList.remove('hidden');
+              pre.scrollTop = pre.scrollHeight;
+              document.getElementById('tailLogs').click();
+              if (document.getElementById('servicesContainer').classList.contains('layout-full')) {
+                document.getElementById('servicesContainer').classList.add('detail-open');
+              }
+            } catch (err) {
+              alert(err.message);
+            }
+          });
+        });
+      }
+    }
+
+
+    // On load, check for an existing session and auto-login if valid
+    (async () => {
+      try {
+        const res = await fetch('/api/v0/services', { credentials: 'same-origin' });
+        if (res.ok) {
+          document.getElementById('loginDiv').classList.add('hidden');
+          document.getElementById('mainDiv').classList.remove('hidden');
+          fetchServices();
+          setInterval(fetchServices, 1000);
+        }
+      } catch (_) {}
+    })();
+
+    document.getElementById('closeDetails').addEventListener('click', () => {
+      document.getElementById('detailsDiv').classList.add('hidden');
+      document.getElementById('servicesContainer').classList.remove('detail-open');
+      if (tailInterval) {
+        clearInterval(tailInterval);
+        tailInterval = null;
+        document.getElementById('tailLogs').textContent = 'Tail Logs';
+      }
+    });
+
+    let tailInterval = null;
+    let lastLogTime = 0;
+    document.getElementById('clearLogs').addEventListener('click', async () => {
+      const id = document.getElementById('detailsServiceId').textContent;
+      try {
+        await fetch(`/api/v0/services/${id}/logs`, { method: 'DELETE', credentials: 'same-origin' });
+        document.getElementById('serviceLogs').textContent = '';
+      } catch (err) {
+        alert('Failed to clear logs: ' + err.message);
+      }
+    });
+
+    document.getElementById('detailsForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('detailsServiceId').textContent;
+      const path = document.getElementById('detailsPath').value;
+      const cmd = document.getElementById('detailsCmd').value;
+      const autoRestart = document.getElementById('detailsAutoRestart').checked;
+      const restartDelay = Number(document.getElementById('detailsRestartDelay').value);
+      try {
+        const res = await fetch(`/api/v0/services/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ cmd, autoRestart, restartDelay, path }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        showFlash('Service updated');
+        fetchServices();
+      } catch (err) {
+        alert('Failed to update service: ' + err.message);
+      }
+    });
+
+    document.getElementById('tailLogs').addEventListener('click', () => {
+      const btn = document.getElementById('tailLogs');
+      const id = document.getElementById('detailsServiceId').textContent;
+      if (tailInterval) {
+        clearInterval(tailInterval);
+        tailInterval = null;
+        btn.textContent = 'Tail Logs';
+      } else {
+        btn.textContent = 'Stop Tail';
+        const pre = document.getElementById('serviceLogs');
+        pre.scrollTop = pre.scrollHeight;
+        tailInterval = setInterval(async () => {
+          try {
+            const res = await fetch(
+              `/api/v0/services/${id}/logs?since=${lastLogTime}`,
+              { credentials: 'same-origin' }
+            );
+            if (res.ok) {
+              const logs = await res.json();
+              const pre = document.getElementById('serviceLogs');
+              const wasAtBottom = pre.scrollHeight - pre.clientHeight - pre.scrollTop < 20;
+              if (logs.length > 0) {
+                pre.textContent += '\n' + logs
+                  .map(l => new Date(l.timestamp).toISOString() + ' ' + l.line)
+                  .join('\n');
+                lastLogTime = logs[logs.length - 1].timestamp;
+                if (wasAtBottom) pre.scrollTop = pre.scrollHeight;
+              }
+            }
+          } catch {}
+        }, 500);
+      }
+    });
+
+    const servicesContainer = document.getElementById('servicesContainer');
+    const servicesSection = document.getElementById('servicesSection');
+    const layoutButtons = Array.from(document.getElementsByClassName('layout-btn'));
+    layoutButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-layout');
+        servicesContainer.classList.remove('layout-vertical', 'layout-horizontal', 'layout-full');
+        servicesSection.classList.remove('layout-full');
+        servicesContainer.classList.add(`layout-${mode}`);
+        if (mode === 'full') {
+          servicesSection.classList.add('layout-full');
+        }
+        layoutButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+      });
+    });
+
+  </script>
+</body>
+</html>

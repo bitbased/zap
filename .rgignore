@@ -1,0 +1,5 @@
+package-lock.json
+.codex/
+.vscode/
+.nvmrc
+node_modules
