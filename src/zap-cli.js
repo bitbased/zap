@@ -825,10 +825,6 @@ async function main() {
           } else {
             cmdToRun = args.map(shellQuote).join(' ');
           }
-          if (pushFlag && isRun) {
-            const npmCheck = 'npm ci --dry-run > /dev/null 2>&1 || (echo "Running npm install..." && npm install)';
-            cmdToRun = npmCheck + ' && ' + cmdToRun;
-          }
           const cwd = process.cwd();
           const root = config.configDir || cwd;
           // determine remote path respecting --noenv and --config
@@ -876,10 +872,6 @@ async function main() {
           break;
         } else if (isSSH) {
           let cmdToRun = execFlag ? args.join(' ') : args.map(shellQuote).join(' ');
-          if (pushFlag && isRun) {
-            const npmCheck = 'npm ci --dry-run > /dev/null 2>&1 || (echo "Running npm install..." && npm install)';
-            cmdToRun = npmCheck + ' && ' + cmdToRun;
-          }
           const cwd = process.cwd();
           const root = config.configDir || cwd;
           const dest = pathFlag || config.path || path.basename(root);
@@ -914,10 +906,6 @@ async function main() {
         // HTTP fallback exec: create an ephemeral service and stream logs
         {
           let cmdToRun = execFlag ? args.join(' ') : args.map(shellQuote).join(' ');
-          if (pushFlag && isRun) {
-            const npmCheck = 'npm ci --dry-run > /dev/null 2>&1 || (echo "Running npm install..." && npm install)';
-            cmdToRun = npmCheck + ' && ' + cmdToRun;
-          }
           const cwd = process.cwd();
           const root = config.configDir || cwd;
           const dest = pathFlag || process.env.ZAP_PATH || config.path || path.basename(root);
