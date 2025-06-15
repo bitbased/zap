@@ -22,9 +22,9 @@ zap run script.ts         # invokes ts-node script.ts
 
 # NPM scripts (fallback)
 zap run my-script         # invokes npm run my-script
+```
 
 > If your project’s `package.json` includes a `zap:pre` script, Zap will run it automatically before invoking your main script.
-```
 
 ### Common Commands
 
