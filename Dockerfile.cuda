@@ -1,3 +1,5 @@
+# Dockerfile.cuda — Ubuntu + Node.js + Cuda environment with common extras
+
 FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
 
 ARG INSTALL_ALL=true
@@ -149,7 +151,6 @@ ENV XDG_RUNTIME_DIR=/tmp/runtime-root
 RUN mkdir -p /tmp/runtime-root
 
 COPY package.json ./
-COPY tsconfig.base.json ./
 COPY tsconfig.json ./
 
 RUN if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_NODE" = "true" ]; then \
@@ -160,8 +161,5 @@ RUN if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_VULKAN_GL" = "true" ]; then \
   fi
 
 COPY src src
-EXPOSE 3000
-EXPOSE 80
-EXPOSE 443
 
 CMD ["sh", "-c", "if [ \"$INSTALL_NGINX\" = \"true\" ]; then nginx -g 'daemon off;' & fi && exec ts-node src/zap-host.ts"]

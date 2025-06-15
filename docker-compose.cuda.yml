@@ -1,0 +1,46 @@
+# docker compose -f docker-compose.cuda.yml -p zap-host up --build -d
+version: '3.9'
+
+services:
+  server:
+    env_file:
+      - .env
+    container_name: zap-host
+    image: zap-server
+    build:
+      context: .
+      dockerfile: Dockerfile.cuda
+      args:
+        INSTALL_ALL: "true"
+        INSTALL_NODE: "true"
+        INSTALL_PYTHON: "true"
+        INSTALL_PYTORCH: "true"
+        INSTALL_NGINX: "false"
+        ZAP_PORT: ${ZAP_PORT:-3000}
+        ZAP_CONFIG: ${ZAP_CONFIG}
+        ZAP_USERNAME: ${ZAP_USERNAME}
+        ZAP_PASSWORD: ${ZAP_PASSWORD}
+        ZAP_SECRET: ${ZAP_SECRET:-changeme123}
+        ZAP_TOKEN: ${ZAP_TOKEN:-changeme456}
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+    ports:
+      - "${ZAP_PORT:-3000}:${ZAP_PORT:-3000}"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # - XDG_RUNTIME_DIR=/tmp/runtime-root
+      # - DISPLAY=:0  # Optional for GUI apps (WSLg)
+      # - WAYLAND_DISPLAY=wayland-0
+
+      # where to cache models & data / best to use a persistent/shared volume
+      - HF_HOME=${ZAP_HF_HOME}
+
+      # authentication (loaded from .env)
+      - HF_HUB_TOKEN=${ZAP_HF_HUB_TOKEN}
+

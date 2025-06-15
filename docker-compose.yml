@@ -1,4 +1,4 @@
-# docker compose -f docker-compose.base.yml -p vortex-zap up --build -d
+# docker compose -f docker-compose.yml -p zap-host up --build -d
 services:
   server:
     container_name: zap-host

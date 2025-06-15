@@ -49,6 +49,18 @@ RUN if [ "$INSTALL_NGINX" = "true" ]; then \
 # Default working directory (mount your code at /zap)
 WORKDIR /zap
 
+COPY package.json ./
+COPY tsconfig.json ./
+
+RUN if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_NODE" = "true" ]; then \
+    npm install && npm install -g ts-node typescript; \
+  fi
+RUN if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_VULKAN_GL" = "true" ]; then \
+    npm install -g gl; \
+  fi
+
+COPY src src
+
 # Default command: if NGINX was enabled, start it in the background,
 # then exec the Zap host via ts-node
 CMD ["sh", "-c", "if [ \"$INSTALL_NGINX\" = \"true\" ]; then nginx -g 'daemon off;' & fi && exec ts-node src/zap-host.ts"]

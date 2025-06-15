@@ -142,49 +142,45 @@ Follow these steps to launch Zap via Docker:
 
 1. Ensure Docker and Docker Compose v2 are installed.
 
-2. Create a `.env` file with at least `ZAP_TOKEN`, `ZAP_SECRET`, and `HF_HUB_TOKEN`:
+2. Create a `.env` file with at least `ZAP_TOKEN` and `ZAP_SECRET`:
 
    ```bash
    ZAP_TOKEN=<your_api_token>
    ZAP_SECRET=<your_jwt_secret>
-   HF_HUB_TOKEN=<your_huggingface_token>
    ```
 
 3. Start the containers:
 
    ```bash
-   docker compose -f docker-compose.zap.yml -p vortex-zap up --build -d
+   docker compose -f docker-compose.yml -p zap-host up --build -d
    ```
 
 4. To stop and remove the containers:
 
    ```bash
-   docker compose -f docker-compose.zap.yml -p vortex-zap down
+   docker compose -f docker-compose.yml -p zap-host down
    ```
 
 #### Mounting Additional Volumes
 
 If you need arbitrary extra mounts (e.g. host folders or data volumes), use a Compose override file:
 
-1. Create `docker-compose.override.yml` alongside `docker-compose.zap.yml`:
+1. Create `docker-compose.override.yml` alongside `docker-compose.base.yml`:
 
    ```yaml
    version: '3.9'
    services:
      server:
        volumes:
-         - /path/on/host/foo:/vortex/foo
-         - /mnt/datasets:/vortex/data/datasets
+         - /path/on/host/foo:/mydata/foo
+         - /mnt/datasets:/mydata/data/datasets
    ```
 
 2. Launch with both files so that your overrides are merged:
 
    ```bash
    docker compose \
-     -f docker-compose.zap.yml \
+     -f docker-compose.yml \
      -f docker-compose.override.yml \
      up -d
    ```
-
-A sample override file is included as `docker-compose.override.yml.example` — copy or rename it alongside `docker-compose.zap.yml` and adjust paths as needed.
-
