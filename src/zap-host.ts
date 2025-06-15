@@ -33,6 +33,37 @@ Options:
   }
 }
 
+/**
+ * Stop the given service and disable auto-restart.
+ */
+function stopServiceProcess(service: Service) {
+	service.status = "stopped";
+	if (service.restartTimer) {
+		clearTimeout(service.restartTimer);
+		delete service.restartTimer;
+	}
+	if (service.process?.pid) {
+		try {
+			process.kill(-service.process.pid);
+		} catch {
+			service.process.kill();
+		}
+	}
+}
+
+/**
+ * Schedule stopping the service after a period of inactivity.
+ */
+function scheduleIdleTimer(service: Service) {
+	if (service.idleTimeout > 0) {
+		service.lastActivity = Date.now();
+		service.idleTimer = setTimeout(() => {
+			console.log(`Stopping service ${service.id} due to inactivity after ${service.idleTimeout}ms`);
+			stopServiceProcess(service);
+		}, service.idleTimeout);
+	}
+}
+
 interface Service {
   id: string;
   process?: ChildProcess;
@@ -47,6 +78,12 @@ interface Service {
   /** whether the service is ephemeral (started via exec) */
   ephemeral: boolean;
   restartTimer?: NodeJS.Timeout;
+  /** inactivity timeout in ms (0 disables auto-stop) */
+  idleTimeout: number;
+  /** timestamp of last log activity */
+  lastActivity?: number;
+  /** timer to automatically stop service after inactivity */
+  idleTimer?: NodeJS.Timeout;
   /** timestamp when the service last stopped or exited */
   finishedAt?: number;
   /** timer to automatically remove ephemeral services after exit */
@@ -342,12 +379,18 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
         let cmd: string;
         let autoRestart = false;
         let restartDelayMs = 0;
+        let idleTimeoutMs = 0;
         let destPath: string | undefined;
         let ephemeral = false;
+        let nameValue: string | undefined;
         try {
           const json = JSON.parse(body);
           cmd = json.cmd;
           if (typeof cmd !== "string") throw new Error();
+          if ("name" in json) {
+            if (typeof json.name !== "string") throw new Error();
+            nameValue = json.name;
+          }
           if ("autoRestart" in json) {
             if (typeof json.autoRestart !== "boolean") throw new Error();
             autoRestart = json.autoRestart;
@@ -366,10 +409,14 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
             if (typeof json.ephemeral !== "boolean") throw new Error();
             ephemeral = json.ephemeral;
           }
+          if ("idleTimeout" in json) {
+            if (typeof json.idleTimeout !== "number" || json.idleTimeout < 0) throw new Error();
+            idleTimeoutMs = json.idleTimeout * 1000;
+          }
         } catch {
           res.writeHead(400);
           res.end(
-            "Invalid JSON payload, expected { cmd: string, autoRestart?: boolean, restartDelay?: number, path?: string, ephemeral?: boolean }"
+            "Invalid JSON payload, expected { cmd: string, name?: string, autoRestart?: boolean, restartDelay?: number, idleTimeout?: number, path?: string, ephemeral?: boolean }"
           );
           return;
         }
@@ -380,7 +427,23 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
           ? (path.isAbsolute(destPath) ? destPath : path.resolve(baseTarget, destPath))
           : baseTarget;
         mkdirSync(targetDir, { recursive: true });
-        const id = crypto.randomUUID();
+        // if a name is provided and a service with that name exists, restart/update it
+        if (nameValue && services.has(nameValue)) {
+          const svc = services.get(nameValue)!;
+          svc.cmd = cmd;
+          svc.autoRestart = autoRestart;
+          svc.restartDelay = restartDelayMs;
+          svc.idleTimeout = idleTimeoutMs;
+          svc.ephemeral = ephemeral;
+          svc.path = targetDir;
+          stopServiceProcess(svc);
+          startServiceProcess(svc);
+          scheduleIdleTimer(svc);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ id: nameValue }));
+          return;
+        }
+        const id = nameValue ?? crypto.randomBytes(3).toString("hex");
         const service: Service = {
           id,
           cmd,
@@ -391,12 +454,15 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
           restartDelay: restartDelayMs,
           ephemeral,
           logs: [],
+          idleTimeout: idleTimeoutMs,
+          lastActivity: Date.now(),
         };
         services.set(id, service);
         if (!service.cmd) {
           service.status = 'stopped';
         } else {
           startServiceProcess(service);
+          scheduleIdleTimer(service);
         }
 
         res.writeHead(201, { "Content-Type": "application/json" });
@@ -450,6 +516,7 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
         let cmd = service.cmd;
         let autoRestart = service.autoRestart;
         let restartDelayMs = service.restartDelay;
+        let idleTimeoutMs = service.idleTimeout;
         let destPath = service.path;
         try {
           const json = JSON.parse(body);
@@ -473,17 +540,27 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
               : path.resolve(baseTarget, json.path);
             mkdirSync(destPath, { recursive: true });
           }
+          if ("idleTimeout" in json) {
+            if (typeof json.idleTimeout !== "number" || json.idleTimeout < 0) throw new Error();
+            idleTimeoutMs = json.idleTimeout * 1000;
+          }
         } catch {
-          res.writeHead(400);
-          res.end(
-            "Invalid JSON payload, expected { cmd?: string, autoRestart?: boolean, restartDelay?: number, path?: string }",
-          );
+        res.writeHead(400);
+        res.end(
+          "Invalid JSON payload, expected { cmd?: string, autoRestart?: boolean, restartDelay?: number, idleTimeout?: number, path?: string }",
+        );
           return;
         }
         service.cmd = cmd;
         service.autoRestart = autoRestart;
         service.restartDelay = restartDelayMs;
         service.path = destPath;
+        service.idleTimeout = idleTimeoutMs;
+        if (service.idleTimer) {
+          clearTimeout(service.idleTimer);
+          delete service.idleTimer;
+        }
+        scheduleIdleTimer(service);
         res.writeHead(204);
         res.end();
       });
@@ -577,6 +654,14 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
       }
       let entries = service.logs.filter((e) => e.timestamp > since && e.timestamp <= until);
       if (limit != null) entries = entries.slice(-limit);
+      // reset inactivity timer on each log fetch (CLI activity)
+      if (service.idleTimeout > 0) {
+        if (service.idleTimer) {
+          clearTimeout(service.idleTimer);
+          delete service.idleTimer;
+        }
+        scheduleIdleTimer(service);
+      }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(entries));
       return;

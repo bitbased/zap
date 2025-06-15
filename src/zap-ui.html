@@ -229,20 +229,15 @@
       display: none;
     }
 
-    /* services table independent scroll & sticky header */
-    #servicesContainer > #services > table {
+    /* services table scroll & sticky header with consistent column widths */
+    #servicesContainer > #services {
       flex: 1;
-      overflow-y: auto;
-      display: block;
+      overflow: auto;
     }
-    #servicesContainer > #services > table thead {
-      display: table;
+    #servicesContainer > #services > table {
       width: 100%;
+      border-collapse: collapse;
       table-layout: fixed;
-    }
-    #servicesContainer > #services > table tbody {
-      display: block;
-      width: 100%;
     }
     #servicesContainer > #services thead th {
       position: sticky;
