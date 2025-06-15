@@ -475,7 +475,25 @@ async function main() {
     } else {
       isRun = true;
       cmd = 'exec';
-      args = ['npm', 'run', ...args];
+      // if there's a zap:pre script, run it before the main npm script
+      let prerun = false;
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(config.configDir, 'package.json'), 'utf8'));
+        prerun = pkg.scripts && pkg.scripts['zap:pre'];
+      } catch {}
+      const scriptName = args[0] || '';
+      const scriptArgs = args.slice(1);
+      // compose a shell command string to run on remote, with optional zap:pre hook
+      let runCmd = `npm run ${scriptName}`;
+      if (prerun) {
+        runCmd = `npm run --silent zap:pre && ${runCmd}`;
+      }
+      if (scriptArgs.length) {
+        runCmd += ' ' + scriptArgs.map(shellQuote).join(' ');
+      }
+      args = [runCmd];
+      // treat as an exec command so we don't re-quote the entire runCmd (allowing shell operators)
+      execFlag = true;
     }
   }
   if (!cmd) {
