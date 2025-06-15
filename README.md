@@ -1,5 +1,7 @@
 # Zap Reactive Deployment
 
+Zap makes remote and container development feel just like local development. It automatically syncs your files and runs commands remotely, so you don’t have to juggle ssh and rsync.
+
 ## Basic CLI Usage
 
 Use the `zap` command to sync local directories, run scripts, and manage services on a remote host.
