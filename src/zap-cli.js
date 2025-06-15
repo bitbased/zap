@@ -12,6 +12,7 @@ const ANSI_RED = '\u001b[31m';
 const ANSI_GREEN = '\u001b[32m';
 const ANSI_YELLOW = '\u001b[33m';
 const ANSI_GRAY = '\u001b[90m';
+const ANSI_BLUE = '\u001b[34m';
 
 const useColor = process.stdout.isTTY;
 function color(text, code) { return useColor ? code + text + ANSI_RESET : text; }
@@ -19,7 +20,23 @@ function bold(text) { return color(text, ANSI_BOLD); }
 function red(text) { return color(text, ANSI_RED); }
 function green(text) { return color(text, ANSI_GREEN); }
 function yellow(text) { return color(text, ANSI_YELLOW); }
+function blue(text) { return color(text, ANSI_BLUE); }
 function gray(text) { return color(text, ANSI_GRAY); }
+
+// optional SSH client for password-based or ssh2://-based SSH
+let SSHClient;
+(function loadSSH2() {
+  try {
+    SSHClient = require('ssh2').Client;
+  } catch (_) {
+    try {
+      const globalRoot = require('child_process')
+        .execSync('npm root -g', { stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString().trim();
+      SSHClient = require(require('path').join(globalRoot, 'ssh2')).Client;
+    } catch (_err) {}
+  }
+})();
 
 (function loadDotEnv() {
   const envPath = path.resolve(process.cwd(), '.env');
@@ -236,6 +253,7 @@ async function main() {
   let sshFlag = false;
   let hostFlag;
   let usernameFlag;
+  let sshPassword;
   let keyFlag;
   let configFlag;
   let pathFlag;
@@ -358,14 +376,16 @@ async function main() {
     console.error('Error: host is required (--host or config.host)');
     process.exit(1);
   }
-  const isSSH = sshFlag || host.startsWith('ssh://') || config.ssh;
+  const isSSH2 = host.startsWith('ssh2://');
+  const isSSH = sshFlag || host.startsWith('ssh://') || isSSH2 || config.ssh;
   let sshHost, sshPort, sshUser;
   if (isSSH) {
-    const uri = host.startsWith('ssh://') ? host : `ssh://${host}`;
+    const uri = (host.startsWith('ssh://') || isSSH2) ? host : `ssh://${host}`;
     const u = new URL(uri);
     sshHost = u.hostname;
     sshPort = u.port;
     sshUser = u.username || undefined;
+    sshPassword = u.password || undefined;
   }
   if (!isSSH && host.includes('@')) {
     const [prefix, h] = host.split('@', 2);
@@ -402,6 +422,9 @@ async function main() {
         noPushFlag = true;
       }
     }
+  }
+  if (syncFlag && cmdArgs.length === 0) {
+    cmdArgs.unshift('sync');
   }
   let envSync, envPush, envWatch;
   if (!noEnvFlag) {
@@ -572,22 +595,61 @@ async function main() {
       }
       tarArgs.push('-C', cwd, '.');
       const tar = require('child_process').spawn('tar', tarArgs);
-      const sshArgs = [];
-      if (sshPort) sshArgs.push('-p', sshPort);
-      sshArgs.push(sshUser ? `${sshUser}@${sshHost}` : sshHost);
-      // Extract via tar, silencing unknown-header warnings on GNU tar
-      const remoteCmd = `mkdir -p ${shellQuote(dest)} && tar --warning=no-unknown-keyword -xz -C ${shellQuote(dest)}`;
-      sshArgs.push(remoteCmd);
-      const ssh = require('child_process').spawn('ssh', sshArgs, { stdio: ['pipe', 'inherit', 'inherit'] });
-      if (!ssh) {
-        throw new Error('Failed to spawn SSH process');
+      if (sshPassword || isSSH2) {
+        if (!SSHClient) {
+          console.error(red('Error: ssh2 support (password-based or ssh2://) requires the optional package "ssh2".'));
+          console.error('Please install with: npm install ssh2 --save-optional');
+          process.exit(1);
+        }
+        await new Promise((resolve, reject) => {
+          const conn = new SSHClient();
+          conn.on('ready', () => {
+            const remoteCmd =
+              `mkdir -p ${shellQuote(dest)} && tar --warning=no-unknown-keyword -xz -C ${shellQuote(dest)}`;
+            conn.exec(remoteCmd, (err, stream) => {
+              if (err) {
+                conn.end();
+                return reject(err);
+              }
+              stream.on('close', (code) => {
+                conn.end();
+                return code === 0
+                  ? resolve()
+                  : reject(new Error(`SSH sync failed: exit code ${code}`));
+              });
+              stream.stderr.on('data', chunk => process.stderr.write(chunk));
+              tar.stdout.pipe(stream.stdin);
+              tar.stderr.pipe(process.stderr);
+            });
+          }).on('error', reject)
+            .connect({ host: sshHost, port: sshPort || 22, username: sshUser, password: sshPassword });
+        });
+      } else {
+        const sshArgs = [];
+        if (sshPort) sshArgs.push('-p', sshPort);
+        sshArgs.push(sshUser ? `${sshUser}@${sshHost}` : sshHost);
+        const remoteCmd =
+          `mkdir -p ${shellQuote(dest)} && tar --warning=no-unknown-keyword -xz -C ${shellQuote(dest)}`;
+        sshArgs.push(remoteCmd);
+        const ssh = require('child_process').spawn('ssh', sshArgs, { stdio: ['pipe', 'inherit', 'inherit'] });
+        if (!ssh) {
+          throw new Error('Failed to spawn SSH process');
+        }
+        tar.stdout.pipe(ssh.stdin);
+        tar.stderr.pipe(process.stderr);
+        await new Promise((resolve, reject) => {
+          ssh.on('error', err => reject(new Error(`SSH error: ${err.message}`)));
+          ssh.on('exit', code => {
+            if (code === 0) return resolve();
+            if (code === 127) {
+              return reject(new Error(
+                `SSH sync failed: remote command not found (exit 127). Is 'tar' installed on the SSH host?`
+              ));
+            }
+            return reject(new Error(`SSH sync failed: exit code ${code}`));
+          });
+        });
       }
-      tar.stdout.pipe(ssh.stdin);
-      tar.stderr.pipe(process.stderr);
-      await new Promise((resolve, reject) => {
-        ssh.on('error', (err) => reject(new Error(`SSH error: ${err.message}`)));
-        ssh.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`SSH sync failed: ${code}`))));
-      });
     } else {
       const tarArgs = ['-cz'];
       const ignoreFile = path.join(root, '.zapignore');
@@ -628,6 +690,7 @@ async function main() {
         tar.stderr.pipe(process.stderr);
       });
     }
+    if (isSSH) console.log(yellow(`[zap] Sync complete`));
   }
 
   function startWatch(onChange) {
@@ -645,14 +708,22 @@ async function main() {
       fileIgnores = fs.readFileSync(ignoreFile, 'utf8').split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
     }
     const patterns = [...excludes, ...fileIgnores];
-    console.log(yellow('[zap] ' + `Watching for changes in ${root}...`));
+    console.log(yellow(`[zap] Watching for changes in ${root}...`));
     const watcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
-      if (!filename) return;
-      const rel = path.relative(root, filename);
-      if (patterns.some(p => rel.includes(p))) return;
+      let rel;
+      if (filename) {
+        rel = path.relative(root, filename);
+        if (patterns.some(p => rel.includes(p))) return;
+        if (debugFlag) {
+          console.log(blue(`\n[zap:debug] Change detected: ${rel}`));
+        }
+      } else {
+        if (debugFlag) {
+          console.log(blue('\n[zap:debug] Change detected'));
+        }
+      }
       (async () => {
         try {
-          console.log(`\nChange detected: ${rel}`);
           await doSyncOnce();
           if (onChange) await onChange();
         } catch (err) {
@@ -678,11 +749,14 @@ async function main() {
     }
     switch (cmd) {
       case 'sync': {
-        if (pushFlag) {
+        // 'push' subcommand forces one-off sync; 'nopush' skips initial sync
+        if (rawArgs.includes('push') || rawArgs.includes('--push')) {
           await doSyncOnce();
           break;
         }
-        await doSyncOnce();
+        if (!rawArgs.includes('nopush') && !rawArgs.includes('--nopush')) {
+          await doSyncOnce();
+        }
         startWatch();
         break;
       }
@@ -711,7 +785,7 @@ async function main() {
         break;
       }
       case 'exec': {
-        if (isSSH) {
+        if (isSSH && (sshPassword || isSSH2)) {
           if (args.length === 0) {
             console.error('Usage: zap exec <command>');
             process.exit(1);
@@ -738,19 +812,40 @@ async function main() {
           if (sshPort) sshArgs.push('-p', sshPort);
           sshArgs.push(sshUser ? `${sshUser}@${sshHost}` : sshHost);
           sshArgs.push(remoteCmd);
-          const ssh = require('child_process').spawn('ssh', sshArgs, { stdio: 'inherit' });
-          if (!ssh) {
-            console.error('Error: Failed to spawn SSH process');
-            process.exit(1);
+          let sshProc;
+          function spawnSSH() {
+            const proc = require('child_process').spawn('ssh', sshArgs, { stdio: 'inherit' });
+            if (!proc) {
+              console.error('Error: Failed to spawn SSH process');
+              process.exit(1);
+            }
+            proc.on('error', (err) => {
+              console.error('SSH error:', err.message);
+              process.exit(1);
+            });
+            proc.on('exit', (code) => process.exit(code || 0));
+            return proc;
           }
-          ssh.on('error', (err) => {
-            console.error('SSH error:', err.message);
-            process.exit(1);
-          });
-          ssh.on('exit', (code) => process.exit(code || 0));
+
+          sshProc = spawnSSH();
+
+          if (syncFlag) {
+            console.log(yellow(`[zap] Watching for local changes and syncing...`));
+            if (watchFlag) {
+              startWatch(async () => {
+                sshProc.removeAllListeners('exit');
+                sshProc.removeAllListeners('error');
+                sshProc.kill();
+                sshProc = spawnSSH();
+                console.log(yellow(`[zap] Command restarted`));
+              });
+            } else {
+              startWatch();
+            }
+          }
+
           break;
-        }
-        {
+        } else if (isSSH) {
           let cmdToRun;
           if (execFlag) {
             cmdToRun = args.join(' ');
