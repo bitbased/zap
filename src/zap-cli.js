@@ -846,12 +846,45 @@ async function main() {
 
           break;
         } else if (isSSH) {
-          let cmdToRun;
-          if (execFlag) {
-            cmdToRun = args.join(' ');
-          } else {
-            cmdToRun = args.map(shellQuote).join(' ');
+          let cmdToRun = execFlag ? args.join(' ') : args.map(shellQuote).join(' ');
+          if (pushFlag && isRun) {
+            const npmCheck = 'npm ci --dry-run > /dev/null 2>&1 || (echo "Running npm install..." && npm install)';
+            cmdToRun = npmCheck + ' && ' + cmdToRun;
           }
+          const cwd = process.cwd();
+          const root = config.configDir || cwd;
+          const dest = pathFlag || config.path || path.basename(root);
+          const remoteCmd = `cd ${shellQuote(dest)} && ${cmdToRun}`;
+          const ssh = require('child_process').spawn('ssh', [
+            ...(sshPort ? ['-p', sshPort] : []),
+            sshUser ? `${sshUser}@${sshHost}` : sshHost,
+            remoteCmd
+          ], { stdio: 'inherit' });
+          if (!ssh) {
+            console.error('Error: Failed to spawn SSH process');
+            process.exit(1);
+          }
+          ssh.on('error', (err) => {
+            console.error('SSH error:', err.message);
+            process.exit(1);
+          });
+          ssh.on('exit', (code) => process.exit(code || 0));
+          break;
+        }
+        if (syncFlag && !isSSH) {
+          if (watchFlag) {
+            startWatch(async () => {
+              await api('POST', `/api/v0/services/${serviceId}/stop`).catch(() => {});
+              await api('POST', `/api/v0/services/${serviceId}/start`).catch(() => {});
+              console.log('Service restarted');
+            });
+          } else {
+            startWatch();
+          }
+        }
+        // HTTP fallback exec: create an ephemeral service and stream logs
+        {
+          let cmdToRun = execFlag ? args.join(' ') : args.map(shellQuote).join(' ');
           if (pushFlag && isRun) {
             const npmCheck = 'npm ci --dry-run > /dev/null 2>&1 || (echo "Running npm install..." && npm install)';
             cmdToRun = npmCheck + ' && ' + cmdToRun;
@@ -895,7 +928,6 @@ async function main() {
           const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
           rl.on('line', async (line) => {
             if (line === 'detach') {
-              // user typed detach: disable idle timeout so the service stays alive, then exit client
               try { await api('PUT', `/api/v0/services/${serviceId}`, { idleTimeout: 0 }); } catch {}
               process.exit(0);
             }
@@ -906,12 +938,10 @@ async function main() {
             }
           });
           rl.on('SIGINT', async () => {
-            // user pressed Ctrl+C: stop the service and exit
             try { await api('POST', `/api/v0/services/${serviceId}/stop`); } catch {}
             process.exit(0);
           });
           rl.on('close', async () => {
-            // user pressed Ctrl+D: detach and disable idle timeout
             try { await api('PUT', `/api/v0/services/${serviceId}`, { idleTimeout: 0 }); } catch {}
             process.exit(0);
           });
@@ -943,7 +973,6 @@ async function main() {
           }
           await sleep(250);
         }
-        break;
       }
 
       case 'services': {
