@@ -892,17 +892,6 @@ async function main() {
           ssh.on('exit', (code) => process.exit(code || 0));
           break;
         }
-        if (syncFlag && !isSSH) {
-          if (watchFlag) {
-            startWatch(async () => {
-              await api('POST', `/api/v0/services/${serviceId}/stop`).catch(() => {});
-              await api('POST', `/api/v0/services/${serviceId}/start`).catch(() => {});
-              console.log('Service restarted');
-            });
-          } else {
-            startWatch();
-          }
-        }
         // HTTP fallback exec: create an ephemeral service and stream logs
         {
           let cmdToRun = execFlag ? args.join(' ') : args.map(shellQuote).join(' ');
