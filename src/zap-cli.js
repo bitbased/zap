@@ -463,9 +463,20 @@ async function main() {
     cmd = 'exec';
     args = [execCmd];
   } else if (cmd === 'run') {
-    isRun = true;
-    cmd = 'exec';
-    args = ['npm', 'run', ...args];
+    // file-based runner: .py => python3, .ts => ts-node, .js => node
+    const target = args[0] || '';
+    if (target.endsWith('.py') || target.endsWith('.ts') || target.endsWith('.js')) {
+      cmd = 'exec';
+      let runner;
+      if (target.endsWith('.py')) runner = 'python3';
+      else if (target.endsWith('.ts')) runner = 'ts-node';
+      else runner = 'node';
+      args = [runner, target, ...args.slice(1)];
+    } else {
+      isRun = true;
+      cmd = 'exec';
+      args = ['npm', 'run', ...args];
+    }
   }
   if (!cmd) {
     console.error(red('Error: command is required'));
