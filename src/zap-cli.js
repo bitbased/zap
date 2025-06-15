@@ -575,14 +575,18 @@ async function main() {
       const sshArgs = [];
       if (sshPort) sshArgs.push('-p', sshPort);
       sshArgs.push(sshUser ? `${sshUser}@${sshHost}` : sshHost);
-      const remoteCmd = `mkdir -p ${shellQuote(dest)} && tar -xz -C ${shellQuote(dest)}`;
+      // Extract via tar, silencing unknown-header warnings on GNU tar
+      const remoteCmd = `mkdir -p ${shellQuote(dest)} && tar --warning=no-unknown-keyword -xz -C ${shellQuote(dest)}`;
       sshArgs.push(remoteCmd);
-      const ssh = require('child_process').spawn('ssh', sshArgs, { stdio: 'inherit' });
+      const ssh = require('child_process').spawn('ssh', sshArgs, { stdio: ['pipe', 'inherit', 'inherit'] });
+      if (!ssh) {
+        throw new Error('Failed to spawn SSH process');
+      }
       tar.stdout.pipe(ssh.stdin);
       tar.stderr.pipe(process.stderr);
       await new Promise((resolve, reject) => {
+        ssh.on('error', (err) => reject(new Error(`SSH error: ${err.message}`)));
         ssh.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(`SSH sync failed: ${code}`))));
-        ssh.on('error', reject);
       });
     } else {
       const tarArgs = ['-cz'];
@@ -611,7 +615,7 @@ async function main() {
         res.on('data', (chunk) => {
           const text = chunk.toString('utf8');
           for (const line of text.split(/\r?\n/)) {
-            if (line) process.stdout.write(green('[zap] ') + line + '\n');
+            if (line) process.stdout.write(yellow('[zap] ' + line) + '\n');
           }
         });
         res.on('end', () => {
@@ -641,7 +645,7 @@ async function main() {
       fileIgnores = fs.readFileSync(ignoreFile, 'utf8').split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('#'));
     }
     const patterns = [...excludes, ...fileIgnores];
-    console.log(green('[zap] ') + `Watching for changes in ${root}...`);
+    console.log(yellow('[zap] ' + `Watching for changes in ${root}...`));
     const watcher = fs.watch(root, { recursive: true }, (eventType, filename) => {
       if (!filename) return;
       const rel = path.relative(root, filename);
@@ -735,6 +739,14 @@ async function main() {
           sshArgs.push(sshUser ? `${sshUser}@${sshHost}` : sshHost);
           sshArgs.push(remoteCmd);
           const ssh = require('child_process').spawn('ssh', sshArgs, { stdio: 'inherit' });
+          if (!ssh) {
+            console.error('Error: Failed to spawn SSH process');
+            process.exit(1);
+          }
+          ssh.on('error', (err) => {
+            console.error('SSH error:', err.message);
+            process.exit(1);
+          });
           ssh.on('exit', (code) => process.exit(code || 0));
           break;
         }

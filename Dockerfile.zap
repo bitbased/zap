@@ -121,7 +121,7 @@ RUN if [ "$INSTALL_NGINX" = "true" ]; then \
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
 
 # --- Runtime config
-WORKDIR /app
+WORKDIR /zap
 
 ARG ZAP_PORT
 ARG ZAP_CONFIG
