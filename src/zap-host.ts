@@ -37,10 +37,19 @@ Options:
  * Stop the given service and disable auto-restart.
  */
 function stopServiceProcess(service: Service) {
+	// fully stop process and clear timers
 	service.status = "stopped";
 	if (service.restartTimer) {
 		clearTimeout(service.restartTimer);
 		delete service.restartTimer;
+	}
+	if (service.idleTimer) {
+		clearTimeout(service.idleTimer);
+		delete service.idleTimer;
+	}
+	if (service.removalTimer) {
+		clearTimeout(service.removalTimer);
+		delete service.removalTimer;
 	}
 	if (service.process?.pid) {
 		try {
@@ -55,6 +64,11 @@ function stopServiceProcess(service: Service) {
  * Schedule stopping the service after a period of inactivity.
  */
 function scheduleIdleTimer(service: Service) {
+	// reset existing idle timer, then schedule inactivity stop if desired
+	if (service.idleTimer) {
+		clearTimeout(service.idleTimer);
+		delete service.idleTimer;
+	}
 	if (service.idleTimeout > 0) {
 		service.lastActivity = Date.now();
 		service.idleTimer = setTimeout(() => {
@@ -94,12 +108,21 @@ interface Service {
 const services = new Map<string, Service>();
 
 function startServiceProcess(service: Service) {
-  service.status = "running";
-  service.exitCode = undefined;
+  // clear any existing timers before (re)starting
   if (service.restartTimer) {
     clearTimeout(service.restartTimer);
     delete service.restartTimer;
   }
+  if (service.idleTimer) {
+    clearTimeout(service.idleTimer);
+    delete service.idleTimer;
+  }
+  if (service.removalTimer) {
+    clearTimeout(service.removalTimer);
+    delete service.removalTimer;
+  }
+  service.status = "running";
+  service.exitCode = undefined;
   const child = spawn(service.cmd, { shell: true, cwd: service.path, detached: true });
   service.process = child;
   child.unref();
@@ -116,6 +139,8 @@ function startServiceProcess(service: Service) {
     }
   });
   child.on("exit", (code) => {
+    // ignore exit events from superseded processes
+    if (service.process !== child) return;
     service.exitCode = code;
     service.finishedAt = Date.now();
     if (service.status !== "stopped") {
@@ -596,18 +621,7 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
         res.end("Service not found");
         return;
       }
-      service.status = "stopped";
-      if (service.restartTimer) {
-        clearTimeout(service.restartTimer);
-        delete service.restartTimer;
-      }
-      if (service.process?.pid) {
-        try {
-          process.kill(-service.process.pid);
-        } catch {
-          service.process.kill();
-        }
-      }
+      stopServiceProcess(service);
       res.writeHead(204);
       res.end();
       return;
