@@ -165,7 +165,7 @@ Follow these steps to launch Zap via Docker:
 
 If you need arbitrary extra mounts (e.g. host folders or data volumes), use a Compose override file:
 
-1. Create `docker-compose.override.yml` alongside `docker-compose.base.yml`:
+1. Create `docker-compose.override.yml` alongside base `docker-composese.yml`:
 
    ```yaml
    version: '3.9'
