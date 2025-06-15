@@ -1,0 +1,54 @@
+# Dockerfile.base — minimal Ubuntu + Node.js environment
+
+FROM ubuntu:22.04
+
+# Set node version
+ARG NODE_VERSION=22
+
+# Allow optional Python and NGINX support via build args
+ARG INSTALL_PYTHON=false
+ARG INSTALL_NGINX=false
+
+# Install prerequisites for Node.js setup
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    gnupg \
+    build-essential \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js v22 and global TypeScript tooling
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+  && apt-get update && apt-get install -y nodejs \
+  && npm install -g ts-node typescript \
+  && node -v && npm -v && ts-node --version
+
+# Install Python3 & pip if requested
+RUN if [ "$INSTALL_PYTHON" = "true" ]; then \
+    apt-get update && apt-get install -y python3 python3-pip python3-venv && \
+    python3 -m pip install --upgrade pip && \
+    rm -rf /var/lib/apt/lists/*; \
+  fi
+
+# Install NGINX and apply default config if requested
+COPY nginx-default.conf /tmp/nginx-default.conf
+RUN if [ "$INSTALL_NGINX" = "true" ]; then \
+    apt-get update && apt-get install -y nginx openssl && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /etc/nginx/ssl && \
+    openssl req -x509 -nodes -days 365 \
+      -subj "/CN=localhost" \
+      -newkey rsa:2048 \
+      -keyout /etc/nginx/ssl/selfsigned.key \
+      -out /etc/nginx/ssl/selfsigned.crt && \
+    rm /etc/nginx/sites-enabled/default && \
+    cp /tmp/nginx-default.conf /etc/nginx/conf.d/default.conf && \
+    rm /tmp/nginx-default.conf; \
+  fi
+
+# Default working directory (mount your code at /zap)
+WORKDIR /zap
+
+# Default command: if NGINX was enabled, start it in the background,
+# then exec the Zap host via ts-node
+CMD ["sh", "-c", "if [ \"$INSTALL_NGINX\" = \"true\" ]; then nginx -g 'daemon off;' & fi && exec ts-node src/zap-host.ts"]

@@ -1,0 +1,21 @@
+# docker compose -f docker-compose.base.yml -p vortex-zap up --build -d
+services:
+  server:
+    container_name: zap-host
+    image: zap-server
+    build:
+      context: .
+      dockerfile: Dockerfile.base
+      args:
+        INSTALL_ALL: "true"
+        INSTALL_NODE: "true"
+        INSTALL_NGINX: "false"
+        ZAP_PORT: ${ZAP_PORT:-3000}
+        ZAP_CONFIG: ${ZAP_CONFIG}
+        ZAP_USERNAME: ${ZAP_USERNAME}
+        ZAP_PASSWORD: ${ZAP_PASSWORD}
+        ZAP_SECRET: ${ZAP_SECRET:-changeme123}
+        ZAP_TOKEN: ${ZAP_TOKEN:-changeme456}
+
+    ports:
+      - "${ZAP_PORT:-3000}:${ZAP_PORT:-3000}"
