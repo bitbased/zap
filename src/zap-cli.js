@@ -172,7 +172,7 @@ function printHelp() {
 Usage: zap [options] <command> [args...] [-- [options]]
 
 Options:
-  --host <[ssh://][token@|user:pass@]host[:port]>  target zap-host address or SSH host (prefix with token@ for API token or user:pass@ for login)
+  --host <name|[ssh://][token@|user:pass@]host[:port]>  target zap-host address or SSH host (or named host defined in config.hosts or ZAP_HOSTS env var; prefix with token@ for API token or user:pass@ for login)
   --user <username>         authentication username (defaults to config and overridden by user:pass@)
   --key <token>             API token for authentication (defaults to config or token@host prefix)
   --config <path>           path to zapconfig.json (env ZAP_CONFIG or default ./zapconfig.json)
@@ -360,6 +360,30 @@ async function main() {
   if (hostFlag) host = hostFlag;
   else if (configFlag) host = config.host || (noEnvFlag ? '' : process.env.ZAP_HOST) || '';
   else host = (noEnvFlag ? '' : process.env.ZAP_HOST) || config.host || '';
+
+  // named hosts mapping from config.hosts and ZAP_HOSTS env var
+  const namedHosts = {};
+  if (config.hosts && typeof config.hosts === 'object') {
+    Object.entries(config.hosts).forEach(([name, uri]) => {
+      namedHosts[name] = uri;
+    });
+  }
+  if (!noEnvFlag && process.env.ZAP_HOSTS) {
+    process.env.ZAP_HOSTS.split(',').forEach(entry => {
+      const e = entry.trim();
+      if (!e) return;
+      const idx = e.indexOf(':');
+      if (idx > 0) {
+        const name = e.slice(0, idx);
+        const uri = e.slice(idx + 1);
+        namedHosts[name] = uri;
+      }
+    });
+  }
+  // resolve named host if key matches
+  if (namedHosts[host]) {
+    host = namedHosts[host];
+  }
   let username;
   if (usernameFlag) username = usernameFlag;
   else if (configFlag) username = config.username || (noEnvFlag ? undefined : process.env.ZAP_USERNAME);

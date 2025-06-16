@@ -55,7 +55,7 @@ zap --help
 Zap can load configuration from these sources, in order (first wins):
 
 1. CLI flags (e.g. `--host`, `--key`, `--config`)
-2. Environment variables or a `.env` file (e.g. `ZAP_HOST`, `ZAP_KEY`, `ZAP_SYNC`, `ZAP_IGNORE`, etc.)
+2. Environment variables or a `.env` file (e.g. `ZAP_HOST`, `ZAP_HOSTS`, `ZAP_KEY`, `ZAP_SYNC`, `ZAP_IGNORE`, etc.)
 3. `zapconfig.json` file in the working directory
 4. `zap` field in `package.json`
 
@@ -70,6 +70,25 @@ Zap can load configuration from these sources, in order (first wins):
        "ignore": ["node_modules", "dist"]
      }
    }
+   ```
+
+   You can also define named hosts mapping in your `zap` config or via the `ZAP_HOSTS` environment variable:
+
+   ```json
+   {
+     "zap": {
+       "hosts": {
+         "hostA": "ssh://user@somehost.local",
+         "hostB": "token@host-server.local:5000"
+       }
+     }
+   }
+   ```
+
+   Or in your shell or `.env` file:
+
+   ```bash
+   export ZAP_HOSTS="hostA:ssh://user@somehost.local,hostB:token@host-server.local:5000"
    ```
 
 ---
