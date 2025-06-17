@@ -124,6 +124,8 @@ else
   echo "Nginx already installed"
 fi
 
+apt install -y libxi-dev libx11-dev libxext-dev libgl1-mesa-dev libegl1-mesa-dev libgles2-mesa-dev build-essential python3 pkg-config
+
 echo "Installing project dependencies..."
 HEADLESS_GL_PLATFORM=egl npm install
 
