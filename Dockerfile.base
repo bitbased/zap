@@ -12,6 +12,7 @@ ARG INSTALL_NGINX=false
 # Install prerequisites for Node.js setup
 RUN apt-get update && apt-get install -y \
     curl \
+    tar \
     ca-certificates \
     gnupg \
     build-essential \

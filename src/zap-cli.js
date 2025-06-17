@@ -23,6 +23,14 @@ function yellow(text) { return color(text, ANSI_YELLOW); }
 function blue(text) { return color(text, ANSI_BLUE); }
 function gray(text) { return color(text, ANSI_GRAY); }
 
+function humanSize(bytes) {
+  const kb = 1024;
+  const mb = kb * 1024;
+  if (bytes >= mb) return (bytes / mb).toFixed(2) + 'mb';
+  if (bytes >= kb) return (bytes / kb).toFixed(2) + 'kb';
+  return bytes + 'b';
+}
+
 // optional SSH client for password-based or ssh2://-based SSH
 let SSHClient;
 (function loadSSH2() {
@@ -184,6 +192,8 @@ Options:
   --nosync                 disable continuous sync (overrides config.sync, --sync, and env ZAP_SYNC)
   watch, --watch             restart service on sync events (respecting .zapignore, config.ignore, and --ignore; also enabled by config.watch or env ZAP_WATCH)
   --nowatch                 disable service restart on sync events (overrides config.watch, --watch, and env ZAP_WATCH)
+  --chunked                 use HTTP chunked transfer encoding for sync (env ENV_CHUNKED=true)
+  --nochunked               disable HTTP chunked transfer encoding (use in-memory buffering)
   ssh, --ssh                force SSH mode (treat host as SSH target or via zapconfig.json ssh=true)
   --exec <cmd>              run the given command string as a service and poll logs until exit
   --name <name>             assign or reuse a persistent service name for exec/run
@@ -268,6 +278,8 @@ async function main() {
   let noPushFlag = false;
   let watchFlag = false;
   let noWatchFlag = false;
+  let chunkedFlag = false;
+  let noChunkedFlag = false;
   let cmdArgs = [];
   let ignoreFlags = [];
   let serviceId;
@@ -309,6 +321,10 @@ async function main() {
       syncFlag = true;
     } else if (a === '--nosync') {
       noSyncFlag = true;
+    } else if (a === '--chunked') {
+      chunkedFlag = true;
+    } else if (a === '--nochunked') {
+      noChunkedFlag = true;
     } else if (a.startsWith('--')) {
     } else {
       cmdArgs = preParts.slice(i);
@@ -344,6 +360,10 @@ async function main() {
       syncFlag = true;
     } else if (a === '--nosync') {
       noSyncFlag = true;
+    } else if (a === '--chunked') {
+      chunkedFlag = true;
+    } else if (a === '--nochunked') {
+      noChunkedFlag = true;
     } else if (a.startsWith('--')) {
     } else {
       break;
@@ -450,7 +470,7 @@ async function main() {
   if (syncFlag && cmdArgs.length === 0) {
     cmdArgs.unshift('sync');
   }
-  let envSync, envPush, envWatch;
+  let envSync, envPush, envWatch, envChunked;
   if (!noEnvFlag) {
     if (process.env.ZAP_SYNC !== undefined) {
       envSync = process.env.ZAP_SYNC === 'true';
@@ -460,6 +480,9 @@ async function main() {
     }
     if (process.env.ZAP_WATCH !== undefined) {
       envWatch = process.env.ZAP_WATCH === 'true';
+    }
+    if (process.env.ENV_CHUNKED !== undefined) {
+      envChunked = process.env.ENV_CHUNKED === 'true';
     }
   }
   if (noSyncFlag) {
@@ -480,6 +503,13 @@ async function main() {
     watchFlag = envWatch;
   } else if (config.watch) {
     watchFlag = true;
+  }
+  if (noChunkedFlag) {
+    chunkedFlag = false;
+  } else if (envChunked !== undefined) {
+    chunkedFlag = envChunked;
+  } else if (config.chunked) {
+    chunkedFlag = true;
   }
   let [cmd, ...args] = cmdArgs;
   let isRun = false;
@@ -725,23 +755,63 @@ async function main() {
         headers: {}
       };
       if (token) reqOpts.headers.Authorization = `Bearer ${token}`;
-      await new Promise((resolve, reject) => {
-      const req = (baseUrl.protocol === 'https:' ? https : http).request(reqOpts, (res) => {
-        res.on('data', (chunk) => {
-          const text = chunk.toString('utf8');
-          for (const line of text.split(/\r?\n/)) {
-            if (line) process.stdout.write(yellow('[zap] ' + line) + '\n');
-          }
+      if (chunkedFlag) {
+        if (debugFlag) console.error(blue('[zap:debug] streaming tar → HTTP chunked'));
+        await new Promise((resolve, reject) => {
+          const req = (baseUrl.protocol === 'https:' ? https : http).request(reqOpts, (res) => {
+            res.on('data', (chunk) => {
+              const text = chunk.toString('utf8');
+              for (const line of text.split(/\r?\n/)) {
+                if (line) process.stdout.write(yellow('[zap] ' + line) + '\n');
+              }
+            });
+            res.on('end', () => {
+              if (res.statusCode === 200) resolve();
+              else reject(new Error(`Sync failed: ${res.statusCode}`));
+            });
+          });
+          tar.stdout.pipe(req);
+          tar.stderr.pipe(process.stderr);
+          tar.on('error', reject);
+          tar.on('close', (code) => {
+            if (code !== 0) {
+              req.destroy(new Error(`tar exited with code ${code}`));
+            } else {
+              req.end();
+            }
+          });
         });
-        res.on('end', () => {
-          if (res.statusCode === 200) resolve();
-          else reject(new Error(`Sync failed: ${res.statusCode}`));
+      } else {
+        // Fallback: buffer tar output in memory, then send with Content-Length.
+        const chunks = [];
+        if (debugFlag) console.error(blue('[zap:debug] buffering tar output in memory'));
+        await new Promise((resolve, reject) => {
+          tar.stderr.pipe(process.stderr);
+          tar.stdout.on('data', (chunk) => chunks.push(chunk));
+          tar.on('error', reject);
+          tar.on('close', (code) => code === 0 ? resolve() : reject(new Error(`tar exited with code ${code}`)));
         });
-      });
-        req.on('error', reject);
-        tar.stdout.pipe(req);
-        tar.stderr.pipe(process.stderr);
-      });
+        const body = Buffer.concat(chunks);
+        reqOpts.headers['Content-Length'] = body.length;
+        await new Promise((resolve, reject) => {
+        if (debugFlag) console.error(blue('[zap:debug] sending buffered tar (Content-Length:' + humanSize(body.length) + ')'));
+          const req = (baseUrl.protocol === 'https:' ? https : http).request(reqOpts, (res) => {
+            res.on('data', (chunk) => {
+              const text = chunk.toString('utf8');
+              for (const line of text.split(/\r?\n/)) {
+                if (line) process.stdout.write(yellow('[zap] ' + line) + '\n');
+              }
+            });
+            res.on('end', () => {
+              if (res.statusCode === 200) resolve();
+              else reject(new Error(`Sync failed: ${res.statusCode}`));
+            });
+          });
+          req.on('error', reject);
+          req.write(body);
+          req.end();
+        });
+      }
     }
     if (isSSH) console.log(yellow(`[zap] Sync complete`));
   }

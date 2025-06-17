@@ -20,6 +20,8 @@ for (let i = 0; i < cliArgs.length; i++) {
     process.env.ZAP_SECRET = cliArgs[++i];
   } else if (a === '--port' && cliArgs[i + 1]) {
     process.env.ZAP_PORT = cliArgs[++i];
+  } else if (a === '--debug') {
+    process.env.ZAP_DEBUG = '1';
   } else if (a === '--help') {
     console.log(`Usage: zap-host [options]
 Options:
@@ -28,10 +30,13 @@ Options:
   --password <pw>     login password override (overrides ZAP_PASSWORD env)
   --secret <secret>   JWT secret override (overrides ZAP_SECRET env)
   --port <port>       listening port override (overrides ZAP_PORT env)
+  --debug             enable debug logging (or set ZAP_DEBUG env)
 `);
     process.exit(0);
   }
 }
+
+const DEBUG = !!process.env.ZAP_DEBUG;
 
 /**
  * Stop the given service and disable auto-restart.
@@ -39,6 +44,7 @@ Options:
 function stopServiceProcess(service: Service) {
 	// fully stop process and clear timers
 	service.status = "stopped";
+	if (DEBUG) console.log(`[DEBUG] Service ${service.id} status -> stopped`);
 	if (service.restartTimer) {
 		clearTimeout(service.restartTimer);
 		delete service.restartTimer;
@@ -126,6 +132,7 @@ function startServiceProcess(service: Service) {
   const child = spawn(service.cmd, { shell: true, cwd: service.path, detached: true });
   service.process = child;
   child.unref();
+  if (DEBUG) console.log(`[DEBUG] Service ${service.id} status -> running (pid: ${child.pid})`);
   child.stdout.on("data", (chunk) => {
     const text = chunk.toString("utf8");
     for (const line of text.split(/\r?\n/)) {
@@ -145,10 +152,12 @@ function startServiceProcess(service: Service) {
     service.finishedAt = Date.now();
     if (service.status !== "stopped") {
       service.status = "exited";
+      if (DEBUG) console.log(`[DEBUG] Service ${service.id} status -> exited with code ${code}`);
       if (service.autoRestart) {
         service.restartTimer = setTimeout(() => {
           startServiceProcess(service);
         }, service.restartDelay);
+        if (DEBUG) console.log(`[DEBUG] Service ${service.id} will restart in ${service.restartDelay}ms`);
       }
     }
     if (service.ephemeral && !service.removalTimer) {
@@ -240,6 +249,12 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
   }
   const { url, method } = req;
   const u = new URL(url, `http://${req.headers.host}`);
+  if (DEBUG) {
+    const isServiceEndpoint = u.pathname === "/api/v0/services" ||
+      /^\/api\/v0\/services\/[^/]+$/.test(u.pathname) ||
+      /^\/api\/v0\/services\/[^/]+\/logs$/.test(u.pathname);
+    if (!isServiceEndpoint) console.log(`[DEBUG] HTTP ${method} ${url}`);
+  }
 
   if (method === "GET" && url === "/") {
     try {
@@ -348,6 +363,7 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
       ? (path.isAbsolute(dest) ? dest : path.resolve(baseTarget, dest))
       : baseTarget;
     mkdirSync(targetDir, { recursive: true });
+    if (DEBUG) console.log(`[DEBUG] Sync: extracting to ${targetDir}`);
 
     const tar = spawn("tar", ["-xz", "-C", targetDir]);
     req.pipe(tar.stdin!);
@@ -359,6 +375,7 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
     });
 
     tar.on("close", (code) => {
+      if (DEBUG) console.log(`[DEBUG] Sync finished (code: ${code}) to ${targetDir}`);
       if (code === 0) {
         res.writeHead(200);
         res.end("Sync completed");
