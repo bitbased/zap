@@ -85,8 +85,8 @@ echo "Installing Python (v${PYTHON_VERSION}) and common packages..."
 apt-get update
 apt-get install -y python${PYTHON_VERSION} python${PYTHON_VERSION}-venv python${PYTHON_VERSION}-dev python${PYTHON_VERSION}-distutils curl
 curl -sS https://bootstrap.pypa.io/get-pip.py | python3
-python3 -m pip install --no-cache-dir --upgrade pip
-python3 -m pip install --no-cache-dir PyOpenGL PyOpenGL-accelerate moderngl
+python3 -m pip install --upgrade pip
+python3 -m pip install PyOpenGL PyOpenGL-accelerate moderngl
 
 echo "Installing additional system libraries for Python extras..."
 apt-get update
@@ -96,16 +96,16 @@ apt-get install -y \
 rm -rf /var/lib/apt/lists/*
 
 echo "Installing Python libraries via pip..."
-python3 -m pip install --no-cache-dir pillow sixel
-python3 -m pip install --no-cache-dir numpy scipy opencv-python transformers
+python3 -m pip install pillow sixel
+python3 -m pip install numpy scipy opencv-python transformers
 
 echo "Installing PyCUDA and related Python packages..."
-python3 -m pip install --no-cache-dir pycuda numpy pillow
+python3 -m pip install pycuda numpy pillow
 
 echo "Installing PyTorch (CUDA) and Hugging Face libraries..."
-python3 -m pip install --no-cache-dir torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-python3 -m pip install --no-cache-dir transformers diffusers datasets accelerate tokenizers huggingface-hub hf-transfer
-python3 -m pip install --no-cache-dir peft bitsandbytes optimum sentencepiece protobuf || true
+# python3 -m pip install --no-cache-dir torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+python3 -m pip install transformers diffusers datasets accelerate tokenizers huggingface-hub hf-transfer
+python3 -m pip install peft bitsandbytes optimum sentencepiece protobuf || true
 
 echo "Installing or updating NGINX and generating self-signed SSL certificate..."
 if ! command -v nginx >/dev/null 2>&1; then
@@ -125,7 +125,7 @@ else
 fi
 
 echo "Installing project dependencies..."
-npm install
+HEADLESS_GL_PLATFORM=egl npm install
 
 HEADLESS_GL_PLATFORM=egl npm install -g gl
 
