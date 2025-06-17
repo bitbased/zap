@@ -48,20 +48,20 @@ rm -rf /var/lib/apt/lists/*
 #   sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit.gpg] https://#' \
 #   > /etc/apt/sources.list.d/nvidia-container-toolkit.list
 # apt-get update
-#
-# echo "Installing Vulkan and OpenGL (GLVND)..."
-# apt-get update
-# apt-get install -y --no-install-recommends \
-#   libx11-dev libxext-dev libvulkan1 \
-#   libglvnd0 libgl1 libglx0 libegl1 libgles2
-# rm -rf /var/lib/apt/lists/*
-# mkdir -p /usr/share/vulkan/icd.d
-# echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.3.0"}}' \
-#   > /usr/share/vulkan/icd.d/nvidia_icd.json
-# mkdir -p /usr/share/glvnd/egl_vendor.d
-# echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
-#   > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
-#
+
+echo "Installing Vulkan and OpenGL (GLVND)..."
+apt-get update
+apt-get install -y --no-install-recommends \
+  libx11-dev libxext-dev libvulkan1 \
+  libglvnd0 libgl1 libglx0 libegl1 libgles2
+rm -rf /var/lib/apt/lists/*
+mkdir -p /usr/share/vulkan/icd.d
+echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.3.0"}}' \
+  > /usr/share/vulkan/icd.d/nvidia_icd.json
+mkdir -p /usr/share/glvnd/egl_vendor.d
+echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+  > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+
 # echo "Installing MESA fallback libraries..."
 # apt-get update
 # apt-get install -y \
@@ -70,10 +70,10 @@ rm -rf /var/lib/apt/lists/*
 #   libgbm-dev libgbm1 libdrm-dev
 # rm -rf /var/lib/apt/lists/*
 #
-# echo "Installing EGL support and GPU runtime..."
-# apt-get update
-# apt-get install -y libgbm1 libnvidia-egl-gbm1
-# rm -rf /var/lib/apt/lists/*
+echo "Installing EGL support and GPU runtime..."
+apt-get update
+apt-get install -y libgbm1 libnvidia-egl-gbm1
+rm -rf /var/lib/apt/lists/*
 
 echo "Installing Node.js (v${NODE_VERSION}) and global npm packages..."
 curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
@@ -126,7 +126,8 @@ fi
 
 echo "Installing project dependencies..."
 npm install
-npm install -g gl
+
+HEADLESS_GL_PLATFORM=egl npm install -g gl
 
 echo "Setup complete!"
 
