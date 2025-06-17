@@ -1,7 +1,15 @@
 
 #!/usr/bin/env bash
 # setup.sh — install host dependencies as in Dockerfile.cuda
-set -euo pipefail
+# set -euo pipefail
+
+# Parse optional flags
+RUN_HOST=false
+for arg in "$@"; do
+  case "$arg" in
+    --run) RUN_HOST=true ;;
+  esac
+done
 
 # Load environment variables from .env if present
 if [ -f .env ]; then
@@ -92,7 +100,7 @@ echo "Installing PyCUDA and related Python packages..."
 python3 -m pip install --no-cache-dir pycuda numpy pillow
 
 echo "Installing PyTorch (CUDA) and Hugging Face libraries..."
-python3 -m pip install --no-cache-dir torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+python3 -m pip install --no-cache-dir torch==2.5.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 python3 -m pip install --no-cache-dir transformers diffusers datasets accelerate tokenizers huggingface-hub hf-transfer
 python3 -m pip install --no-cache-dir peft bitsandbytes optimum sentencepiece protobuf || true
 
@@ -118,3 +126,10 @@ npm install
 npm install -g gl
 
 echo "Setup complete!"
+
+# If requested, start nginx and zap-host
+if [ "${RUN_HOST}" = "true" ]; then
+  echo "Starting Nginx and Zap host..."
+  nginx -g 'daemon off;' &
+  exec ts-node src/zap-host.ts
+fi
