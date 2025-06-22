@@ -194,6 +194,7 @@ Options:
   --nowatch                 disable service restart on sync events (overrides config.watch, --watch, and env ZAP_WATCH)
   --chunked                 use HTTP chunked transfer encoding for sync (env ENV_CHUNKED=true)
   --nochunked               disable HTTP chunked transfer encoding (use in-memory buffering)
+  --force                   pass ignore patterns to server for cleaning up extraneous files (can set force: true in zap config)
   ssh, --ssh                force SSH mode (treat host as SSH target or via zapconfig.json ssh=true)
   --exec <cmd>              run the given command string as a service and poll logs until exit
   --name <name>             assign or reuse a persistent service name for exec/run
@@ -280,6 +281,7 @@ async function main() {
   let noWatchFlag = false;
   let chunkedFlag = false;
   let noChunkedFlag = false;
+  let forceFlag = false;
   let cmdArgs = [];
   let ignoreFlags = [];
   let serviceId;
@@ -325,6 +327,8 @@ async function main() {
       chunkedFlag = true;
     } else if (a === '--nochunked') {
       noChunkedFlag = true;
+    } else if (a === '--force') {
+      forceFlag = true;
     } else if (a.startsWith('--')) {
     } else {
       cmdArgs = preParts.slice(i);
@@ -364,6 +368,8 @@ async function main() {
       chunkedFlag = true;
     } else if (a === '--nochunked') {
       noChunkedFlag = true;
+    } else if (a === '--force') {
+      forceFlag = true;
     } else if (a.startsWith('--')) {
     } else {
       break;
@@ -510,6 +516,9 @@ async function main() {
     chunkedFlag = envChunked;
   } else if (config.chunked) {
     chunkedFlag = true;
+  }
+  if (config.force) {
+    forceFlag = true;
   }
   let [cmd, ...args] = cmdArgs;
   let isRun = false;
@@ -745,7 +754,13 @@ async function main() {
       tarArgs.push('-C', cwd, '.');
       const tar = require('child_process').spawn('tar', tarArgs);
       let syncPath = '/api/v0/sync';
-      if (dest) syncPath += `?path=${encodeURIComponent(dest)}`;
+      if (dest) {
+        syncPath += `?path=${encodeURIComponent(dest)}`;
+      }
+      if (forceFlag && rawIgnores.length > 0) {
+        const s = rawIgnores.map(encodeURIComponent).join(',');
+        syncPath += (syncPath.includes('?') ? '&' : '?') + 'syncIgnore=' + s;
+      }
       const reqOpts = {
         protocol: baseUrl.protocol,
         hostname: baseUrl.hostname,

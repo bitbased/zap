@@ -1,6 +1,6 @@
 import http, { IncomingMessage, ServerResponse } from "http";
 import { spawn, ChildProcess } from "child_process";
-import { mkdirSync, readFileSync } from "fs";
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, rmdirSync } from "fs";
 import path from "path";
 import { URL } from "url";
 import crypto from "crypto";
@@ -359,13 +359,28 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
   if (method === "POST" && u.pathname === "/api/v0/sync") {
     const baseTarget = process.env.SYNC_DIR || path.resolve(process.cwd(), "zaps");
     const dest = u.searchParams.get("path");
+    const syncIgnore = u.searchParams.get("syncIgnore");
     const targetDir = dest
       ? (path.isAbsolute(dest) ? dest : path.resolve(baseTarget, dest))
       : baseTarget;
     mkdirSync(targetDir, { recursive: true });
     if (DEBUG) console.log(`[DEBUG] Sync: extracting to ${targetDir}`);
 
-    const tar = spawn("tar", ["-xz", "-C", targetDir]);
+    // collect extracted file paths for cleaning up extraneous files
+    const extracted: string[] = [];
+    const tar = spawn("tar", ["-x", "-z", "-v", "-C", targetDir]);
+    tar.stdout.on("data", (chunk) => {
+      const text = chunk.toString("utf8");
+      for (const line of text.split(/\r?\n/)) {
+        let name = line.trim();
+        if (!name) continue;
+        if (name.startsWith("./")) name = name.slice(2);
+        extracted.push(name);
+      }
+    });
+    tar.stderr.on("data", (chunk) => {
+      if (DEBUG) console.log(`[DEBUG] tar stderr: ${chunk.toString("utf8")}`);
+    });
     req.pipe(tar.stdin!);
 
     tar.on("error", (err) => {
@@ -377,8 +392,77 @@ const server = http.createServer((req: IncomingMessage, res: ServerResponse) => 
     tar.on("close", (code) => {
       if (DEBUG) console.log(`[DEBUG] Sync finished (code: ${code}) to ${targetDir}`);
       if (code === 0) {
-        res.writeHead(200);
-        res.end("Sync completed");
+        const deleted: string[] = [];
+        if (syncIgnore) {
+          try {
+            const patterns = syncIgnore
+              .split(",")
+              .map((p) => p.trim())
+              .filter(Boolean);
+            const extractSet = new Set(extracted);
+            const matches = (relPath: string) =>
+              patterns.some((p) => {
+                if (p.includes("*")) {
+                  const re = new RegExp(
+                    "^" +
+                      p
+                        .split("*")
+                        .map((s) =>
+                          s.replace(/[.+?^${}()|\[\]\\]/g, "\\$&")
+                        )
+                        .join(".*") +
+                      "$"
+                  );
+                  return re.test(relPath);
+                }
+                return (
+                  relPath === p ||
+                  relPath.startsWith(p + "/") ||
+                  relPath.split("/").includes(p)
+                );
+              });
+            const walk = (dir: string) => {
+              for (const entry of readdirSync(dir, { withFileTypes: true })) {
+                const full = path.join(dir, entry.name);
+                const rel = path
+                  .relative(targetDir, full)
+                  .replace(/\\/g, "/");
+                if (entry.isDirectory()) {
+                  walk(full);
+                  const rem = readdirSync(full);
+                  if (
+                    rem.length === 0 &&
+                    !matches(rel) &&
+                    !extractSet.has(rel + "/")
+                  ) {
+                    console.log(`Deleted directory: ${rel}/`);
+                    deleted.push(rel + "/");
+                    rmdirSync(full);
+                  }
+                } else {
+                  if (!extractSet.has(rel) && !matches(rel)) {
+                    console.log(`Deleted file: ${rel}`);
+                    deleted.push(rel);
+                    unlinkSync(full);
+                  }
+                }
+              }
+            };
+            walk(targetDir);
+          } catch (err: any) {
+            console.error("sync clean error:", err);
+            res.writeHead(500);
+            res.end("Sync clean failed: " + err.message);
+            return;
+          }
+        }
+        if (syncIgnore && deleted?.length) {
+          res.writeHead(200);
+          res.end(`Sync deletions:\n${deleted.map(d => '  ' + d).join('\n')}\nSync completed"`);
+        } else {
+          res.writeHead(200);
+          res.end("Sync completed");
+        }
       } else {
         res.writeHead(500);
         res.end("Extraction failed with code " + code);
